@@ -25,6 +25,7 @@
 
 #include <SPI.h>
 #include <Ethernet.h>
+#include <SoftwareSerial.h>
 
 //
 // Vars / Setup
@@ -36,6 +37,13 @@ const byte ETX = 0x03;
 const byte ACK = 0x06;
 const byte NACK = 0x15;
 const byte FRAME_LENGTH = 11;
+
+// Bluetooth
+const byte BT_BUFFER_LENGTH = 100;
+SofwareSerial ble(2, 3);
+char btBuffer[BT_BUFFER_LENGTH];
+const int btTimeout = 800;
+const long btBauds[] = { 9600, 57600, 115200, 38400, 2400, 4800, 19200 };
 
 // Ethernet
 bool isServer = false;  // !!! CHANGE THIS !!!
@@ -52,6 +60,71 @@ EthernetClient client;
 
 // Server:
 EthernetServer server(serverPort);
+
+long BLEAutoBaud() {
+	int baudcount = sizeof(btBauds) / sizeof(long);
+	for (int i = 0; i < baudcount; i++) {
+		for (int x = 0; x < 3; x++) {  // test at least 3 times for each baud
+			Serial.print("Test la vitesse ");
+			Serial.println(bauds[i]);
+			ble.begin(bauds[i]);
+			if (BLEIsReady()) {
+				return bauds[i];
+			}
+		}
+	}
+	return -1;
+}
+
+boolean BLEIsReady() {
+	BLECmd(timeout, "AT", buffer);  // Send AT and store response to buffer
+	if (strcmp(buffer, "OK") == 0) {
+		return true;
+	} else {
+		return false;
+	}
+}
+
+boolean BLECmd(long timeout, char* command, char* temp) {
+	long endtime;
+	boolean found = false;
+	endtime = millis() + timeout;    //
+	memset(temp, 0, BUFFER_LENGTH);  // clear buffer
+	found = true;
+	Serial.print("Arduino envoie = ");
+	Serial.println(command);
+	ble.print(command);
+
+	// The loop below wait till either a response is received or timeout
+	// The problem with this BLE Shield is the HM-10 module does not response with CR LF at the end of the response,
+	// so a timeout is required to detect end of response and also prevent the loop locking up.
+
+	while (!ble.available()) {
+		if (millis() > endtime) {  // timeout, break
+			found = false;
+			break;
+		}
+	}
+
+	if (found) {  // response is available
+		int i = 0;
+		while (ble.available()) {  // loop and read the data
+			char a = ble.read();
+			// Serial.print((char)a);	// Uncomment this to see raw data from BLE
+			temp[i] = a;  // save data to buffer
+			i++;
+			if (i >= BUFFER_LENGTH) break;  // prevent buffer overflow, need to break
+			delay(1);                       // give it a 2ms delay before reading next character
+		}
+		Serial.print("HM-10 BLE répond  = ");
+		Serial.println(temp);
+		return true;
+	} else {
+		Serial.println("HM-10 BLE timeout!");
+		return false;
+	}
+}
+
 
 void setup() {
   Serial.begin(9600);
@@ -91,11 +164,12 @@ void readCommand(EthernetClient client) {
     pos++;
   }
 
-  for (byte i = 0; i < FRAME_LENGTH; i++) {
-    Serial.print(frame[i]);
-    Serial.print(" ");
-  }
-  Serial.println();
+  // for (byte i = 0; i < FRAME_LENGTH; i++) {
+  //   Serial.print(frame[i]);
+  //   Serial.print(" ");
+  // }
+  // Serial.println();
+
   // ... process frame
 }
 
@@ -138,7 +212,8 @@ void clientLoop() {
     readCommand(client);
 
     if (current_millis - previous_millis > interval) {
-      sendCommand(client, {}, 0);
+      // sendCommand(client, {}, 0);
+      Serial.println("sending");
 
       previous_millis = current_millis;
     }
