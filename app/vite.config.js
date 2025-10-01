@@ -1,8 +1,9 @@
 import { sveltekit } from "@sveltejs/kit/vite";
+import { internalIpV4 } from "internal-ip";
 import { defineConfig } from "vite";
 
 // @ts-expect-error process is a nodejs global
-const host = process.env.TAURI_DEV_HOST;
+const mobile = true /* !!/android|ios/.exec(process.env.TAURI_ENV_PLATFORM) */;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -13,11 +14,11 @@ export default defineConfig(async () => ({
     server: {
         port: 1420,
         strictPort: true,
-        host: host || false,
-        hmr: host
+        host: mobile ? "0.0.0.0" : false,
+        hmr: mobile
             ? {
                   protocol: "ws",
-                  host,
+                  host: await internalIpV4(),
                   port: 1421
               }
             : undefined,
