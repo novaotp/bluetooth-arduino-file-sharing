@@ -200,31 +200,44 @@ bool processFrame(EthernetClient _client) {
 }
 
 /// Read bytes from the provided client
+/// Should be used by the server
 void readClient(EthernetClient _client) {
   if (processFrame(_client)) {
     Serial.println(F("Valid"));
     byte b[] = { ACK };
-    byte ACKframe[] = { STX, clientIp[0], clientIp[1], clientIp[2], clientIp[3], 1, ACK, calculateVerification(clientIp, 1, b), STX };
-    sendCommand(client, ACKframe, 9);
+    byte ACKframe[] = { STX, clientIp[0], clientIp[1], clientIp[2], clientIp[3], 1, ACK, calculateVerification(clientIp, 1, b), ETX };
+    sendCommand(server, ACKframe, 9);
   }
   else {
     Serial.println(F("Not valid"));
     byte b[] = { NACK };
-    byte NACKframe[] = { STX, clientIp[0], clientIp[1], clientIp[2], clientIp[3], 1, NACK, calculateVerification(clientIp, 1, b), STX };
-    sendCommand(client, NACKframe, 9);
+    byte NACKframe[] = { STX, clientIp[0], clientIp[1], clientIp[2], clientIp[3], 1, NACK, calculateVerification(clientIp, 1, b), ETX };
+    sendCommand(server, NACKframe, 9);
   }
 }
 
-/// Send the provided body to the provided client
-void sendCommand(EthernetClient client, byte body[], size_t length) {
+/// Send the provided body to the clients connected to the provided server
+void sendCommand(EthernetServer _server, byte body[], size_t length) {
   for (byte i = 0; i < length; i++) {
     Serial.print(body[i], HEX);
     Serial.print(' ');
   }
   Serial.println();
 
-  client.write(body, length);
-  client.flush();
+  _server.write(body, length);
+  _server.flush();
+}
+
+/// Send the provided body to the provided client
+void sendCommand(EthernetClient _client, byte body[], size_t length) {
+  for (byte i = 0; i < length; i++) {
+    Serial.print(body[i], HEX);
+    Serial.print(' ');
+  }
+  Serial.println();
+
+  _client.write(body, length);
+  _client.flush();
 }
 
 //
@@ -257,9 +270,12 @@ void clientLoop() {
     unsigned long current_millis = millis();
 
     // If there's data received from the server
-    // readClient(client);
-
-    if (current_millis - previous_millis > interval) {
+    byte c;
+    if ((c = client.read()) != 0xFF) {
+      Serial.println(c);
+    }
+    
+    else if (current_millis - previous_millis > interval) {
       Serial.println(F("Sending data to server."));
       byte b[] = { 0x01, 0x01, 0x01 };
       byte addr[4] = { serverAddress[0], serverAddress[1], serverAddress[2], serverAddress[3] }; // Workaround to avoid unexpected behaviour with IPAddress class
