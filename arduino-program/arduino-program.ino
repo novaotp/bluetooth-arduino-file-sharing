@@ -56,13 +56,14 @@ const int serverPort = 4080;
 const byte mac[6] = { 0xA8, 0x61, 0x0A, 0xAE, 0xDD, 0xFF };  // !!! CHANGE THIS !!!
 IPAddress ip(192, 168, 1, 11);                               // !!! CHANGE THIS !!!
 
-// Client definition:
+// Config for CLIENT:
 IPAddress serverAddress(192, 168, 1, 12);  // !!! CHANGE THIS !!!
+int tempAddress[4] = {192, 168, 1, 12};
 EthernetClient client;
 
-// Server definition:
+// Config for SERVER:
 EthernetServer server(serverPort);
-IPAddress clientIp(192, 168, 1, 12);  // !!! CHANGE THIS !!!
+IPAddress clientIp(192, 168, 1, 11);  // !!! CHANGE THIS !!!
 
 void setup() {
   Serial.begin(9600);
@@ -162,27 +163,32 @@ byte calculateVerification(byte address[], byte length, byte body[]) {
   return crc;
 }
 
-/// Read bytes from the provided client
-void readCommand(EthernetClient _client) {
+/// Read the frame and return if it's valid
+bool processFrame(EthernetClient _client) {
   byte c;
   byte frame[ET_FRAME_LENGTH];
   byte pos = 0;
 
-  while ((c = _client.read()) != 0xFF) {
-    frame[pos] = c;
-    pos++;
+  while (_client.available()) {
+    int c = _client.read();
+    if (c < 0)
+      break;
+    frame[pos++] = c;
+    if (pos >= ET_FRAME_LENGTH)
+      break;
   }
+
 
   // Check for STX
   if (frame[0] != STX) {
     Serial.println(F("Invalid frame"));
-    return;
+    return false;
   }
 
   // Get parameters from frame
   byte address[4] = { frame[1], frame[2], frame[3], frame[4] };
   byte length = frame[5];
-  byte verification = frame[length + 5];
+  byte verification = frame[length + 6];
 
   byte body[length];
   for (byte i = 0; i < length; i++) {
@@ -190,21 +196,33 @@ void readCommand(EthernetClient _client) {
   }
 
   const bool isValid = verification == calculateVerification(address, length, body);
+  return isValid;
+}
 
-  if (isValid) {
+/// Read bytes from the provided client
+void readClient(EthernetClient _client) {
+  if (processFrame(_client)) {
     Serial.println(F("Valid"));
-    byte ACKframe[] = { STX, clientIp[0], clientIp[1], clientIp[2], clientIp[3], 1, ACK, calculateVerification(clientIp, 1, { ACK }), STX };
+    byte b[] = { ACK };
+    byte ACKframe[] = { STX, clientIp[0], clientIp[1], clientIp[2], clientIp[3], 1, ACK, calculateVerification(clientIp, 1, b), STX };
     sendCommand(client, ACKframe, 9);
   }
   else {
     Serial.println(F("Not valid"));
-    byte NACKframe[] = { STX, clientIp[0], clientIp[1], clientIp[2], clientIp[3], 1, NACK, calculateVerification(clientIp, 1, { NACK }), STX };
+    byte b[] = { NACK };
+    byte NACKframe[] = { STX, clientIp[0], clientIp[1], clientIp[2], clientIp[3], 1, NACK, calculateVerification(clientIp, 1, b), STX };
     sendCommand(client, NACKframe, 9);
   }
 }
 
 /// Send the provided body to the provided client
 void sendCommand(EthernetClient client, byte body[], size_t length) {
+  for (byte i = 0; i < length; i++) {
+    Serial.print(body[i], HEX);
+    Serial.print(' ');
+  }
+  Serial.println();
+
   client.write(body, length);
   client.flush();
 }
@@ -217,9 +235,9 @@ void serverLoop() {
   EthernetClient _client = server.available();
 
   if (_client) {
-    Serial.print(F("RECEIVED COMMAND"));
+    Serial.println(F("RECEIVED COMMAND"));
 
-    readCommand(_client);
+    readClient(_client);
 
     Ethernet.maintain();
   }
@@ -239,11 +257,26 @@ void clientLoop() {
     unsigned long current_millis = millis();
 
     // If there's data received from the server
-    readCommand(client);
+    // readClient(client);
 
     if (current_millis - previous_millis > interval) {
-      // sendCommand(client, {}, 0);
-      Serial.println(F("sending"));
+      Serial.println(F("Sending data to server."));
+      byte b[] = { 0x01, 0x01, 0x01 };
+      byte addr[4] = { serverAddress[0], serverAddress[1], serverAddress[2], serverAddress[3] }; // Workaround to avoid unexpected behaviour with IPAddress class
+      byte body[] = {
+        0x02, // stx
+        0xc0, // addr
+        0xa8, // addr
+        0x01, // addr
+        0x0c, // addr
+        0x03, // length
+        0x01, // body
+        0x01, // body
+        0x01, // body
+        calculateVerification(addr, 3, b),
+        0x03 // etx
+        };
+      sendCommand(client, body, 11);
 
       previous_millis = current_millis;
     }
@@ -251,6 +284,7 @@ void clientLoop() {
 }
 
 void loop() {
+  delay(500);
   if (isServer) {
     serverLoop();
   } else {
