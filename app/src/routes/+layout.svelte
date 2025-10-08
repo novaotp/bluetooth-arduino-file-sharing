@@ -1,8 +1,18 @@
 <script lang="ts">
-	import '../app.css';
+    import { BleClient } from '@capacitor-community/bluetooth-le';
+    import { onMount } from 'svelte';
 	import favicon from '$lib/assets/favicon.svg';
+	import '../app.css';
 	
 	let { children } = $props();
+
+    onMount(async () => {
+        try {
+            await BleClient.initialize();
+        } catch {
+            // Bluetooth is unavailable on device
+        }
+    })
 </script>
 
 <svelte:head>
